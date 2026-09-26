@@ -428,7 +428,7 @@ async function analyzeVideo(file) {
         duration: video.duration,
         width: video.videoWidth,
         height: video.videoHeight,
-        frameRate: 30 // 기본값, 정확한 프레임레이트는 VideoDecoder에서 확인
+        frameRate: 30 // 기본값, canvas 프레임 추출 시 사용
       };
       URL.revokeObjectURL(url);
       resolve(result);
@@ -444,7 +444,7 @@ async function analyzeVideo(file) {
 }
 ```
 
-- [ ] **Step 2: 파일 선택 시 비디오 메타데이터 표션 연결**
+- [ ] **Step 2: 파일 선택 시 비디오 메타데이터 표시 연결**
 
 `handleFileSelect` 함수를 수정:
 
@@ -630,13 +630,6 @@ async function compressVideo(file, onProgress) {
   const meta = await analyzeVideo(file);
   const bitrate = calculateBitrate(meta.duration);
 
-  // VideoDecoder 설정
-  const decoderConfig = {
-    codec: 'avc1.42001E', // H.264 baseline (대부분의 입력 파일)
-    codedWidth: meta.width,
-    codedHeight: meta.height,
-  };
-
   // 입력 비디오 디코딩을 위한 임시 요소
   const blob = new Blob([arrayBuffer], { type: file.type });
   const url = URL.createObjectURL(blob);
@@ -649,24 +642,6 @@ async function compressVideo(file, onProgress) {
     video.onloadeddata = resolve;
     video.onerror = () => reject(new Error('비디오 로딩 실패'));
   });
-
-  // VideoDecoder 생성
-  const decoder = new VideoDecoder({
-    output: (frame) => {
-      // 인코더로 전달
-      if (encoder && encoder.state === 'configured') {
-        encoder.encodeFrame, { keyFrame: frame.timestamp % 1000000 < 16667 });
-        frameCount++;
-        encoder.flush();
-      }
-      frame.close();
-    },
-    error: (e) => {
-      throw e;
-    }
-  });
-
-  decoder.configure(decoderConfig);
 
   // VideoEncoder 설정 (AV1)
   const encoderConfig = {
@@ -727,7 +702,6 @@ async function compressVideo(file, onProgress) {
   }
 
   await encoder.flush();
-  decoder.close();
   encoder.close();
   URL.revokeObjectURL(url);
 
@@ -833,10 +807,9 @@ try {
     // ... 인코딩 로직 ...
   }
 } catch (err) {
-  decoder.close();
   encoder.close();
   URL.revokeObjectURL(url);
-  if (err.message.includes('memory') || err.name === 'QuotaExceededError') {
+  if (err.message && (err.message.includes('memory') || err.name === 'QuotaExceededError')) {
     throw new Error('메모리가 부족하여 압축을 완료할 수 없습니다. 더 짧은 비디오로 시도해 주세요.');
   }
   throw err;
