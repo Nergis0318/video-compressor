@@ -472,34 +472,53 @@
         width: meta.width,
         height: meta.height,
         bitrate: bitrate,
-        framerate: fps
+        framerate: fps,
+        latencyMode: 'quality'
       });
 
       let frameCount = 0;
       const startTime = performance.now();
+      let nextKeyFrame = 0;
+      const keyFrameInterval = Math.floor(fps * 2);
 
       try {
-        for (let i = 0; i < totalFrames; i++) {
-          const currentTime = i * frameInterval;
-          video.currentTime = currentTime;
+        // 비디오를 1배속 재생하면서 requestVideoFrameCallback으로 프레임 수신
+        video.play();
 
-          await new Promise(resolve => {
-            video.onseeked = resolve;
-          });
+        await new Promise((resolve, reject) => {
+          const processFrame = (now, metadata) => {
+            if (frameCount >= totalFrames || video.ended || video.paused) {
+              resolve();
+              return;
+            }
 
-          ctx.drawImage(video, 0, 0, meta.width, meta.height);
-          const frame = new VideoFrame(canvas, { timestamp: i * 1000000 / fps });
+            try {
+              ctx.drawImage(video, 0, 0, meta.width, meta.height);
+              const frame = new VideoFrame(canvas, { timestamp: metadata.mediaTime * 1000000 });
 
-          encoder.encode(frame, { keyFrame: i % Math.floor(fps * 2) === 0 });
-          frame.close();
+              const isKeyFrame = frameCount >= nextKeyFrame;
+              if (isKeyFrame) nextKeyFrame += keyFrameInterval;
 
-          frameCount++;
-          const elapsed = (performance.now() - startTime) / 1000;
-          const percent = (i + 1) / totalFrames * 100;
-          onProgress(percent, elapsed, totalFrames, i + 1);
+              encoder.encode(frame, { keyFrame: isKeyFrame });
+              frame.close();
 
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
+              frameCount++;
+              const elapsed = (performance.now() - startTime) / 1000;
+              const percent = (frameCount / totalFrames) * 100;
+              onProgress(percent, elapsed, totalFrames, frameCount);
+            } catch (err) {
+              reject(err);
+              return;
+            }
+
+            video.requestVideoFrameCallback(processFrame);
+          };
+
+          video.requestVideoFrameCallback(processFrame);
+
+          video.onerror = () => reject(new Error('비디오 재생 중 오류가 발생했습니다.'));
+          video.onended = () => resolve();
+        });
       } catch (err) {
         encoder.close();
         URL.revokeObjectURL(url);
