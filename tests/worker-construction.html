@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>ffmpeg.wasm worker construction regression test</title>
-<script src="ffmpeg.js"></script>
+<script src="../vendor/ffmpeg/ffmpeg.js"></script>
 </head>
 <body>
 <pre id="out">running...</pre>
@@ -54,11 +54,11 @@ async function run() {
 
   // 3) explicit direct construction, the precise regression assertion
   try {
-    const w = new Worker('814.ffmpeg.js');
+    const w = new Worker(new URL('../vendor/ffmpeg/814.ffmpeg.js', location.href));
     w.terminate();
-    report(true, "direct new Worker('814.ffmpeg.js') constructed with no SecurityError");
+    report(true, "direct new Worker(new URL('../vendor/ffmpeg/814.ffmpeg.js', location.href)) constructed with no SecurityError");
   } catch (e) {
-    report(false, "direct new Worker('814.ffmpeg.js') threw: " + e);
+    report(false, "direct new Worker(new URL('../vendor/ffmpeg/814.ffmpeg.js', location.href)) threw: " + e);
   }
 }
 

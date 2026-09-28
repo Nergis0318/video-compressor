@@ -240,9 +240,8 @@
       <div class="codec-selector">
         <label for="codecSelect">코덱 선택</label>
         <select id="codecSelect">
-          <option value="av1" selected>AV1 (최고 압축률)</option>
-          <option value="vp9">VP9 (빠른 인코딩)</option>
-          <option value="h264">H.264 (최고 호환성)</option>
+          <option value="h264" selected>H.264 · MP4 (최고 호환성)</option>
+          <option value="vp9">VP9 · WebM (더 좋은 압축률)</option>
         </select>
       </div>
 
@@ -286,10 +285,11 @@
     const AUDIO_BITRATE = 128000;
 
     // === 코덱 설정 ===
+    // @ffmpeg/core 0.12.6에는 libaom-av1이 없다(-encoders로 확인).
+    // 실제로 존재하는 인코더만 노출한다: libx264, libvpx-vp9.
     const CODEC_PRESETS = {
-      av1: { codec: 'libaom-av1', ext: 'webm', mime: 'video/webm', extraArgs: ['-cpu-used', '4'] },
-      vp9: { codec: 'libvpx-vp9', ext: 'webm', mime: 'video/webm', extraArgs: ['-row-mt', '1'] },
-      h264: { codec: 'libx264', ext: 'mp4', mime: 'video/mp4', extraArgs: ['-preset', 'fast'] }
+      h264: { codec: 'libx264', ext: 'mp4', mime: 'video/mp4', extraArgs: ['-preset', 'veryfast'] },
+      vp9: { codec: 'libvpx-vp9', ext: 'webm', mime: 'video/webm', extraArgs: ['-row-mt', '1', '-deadline', 'realtime', '-cpu-used', '8'] }
     };
 
     // === DOM 요소 ===
@@ -420,7 +420,7 @@
         document.getElementById('fileResolution').textContent = meta.width + ' × ' + meta.height;
         compressBtn.disabled = false;
       } catch (err) {
-        showError(err.message);
+        showError(errText(err));
         fileInfo.classList.remove('visible');
       }
     }
@@ -432,6 +432,15 @@
 
     function hideError() {
       errorMessage.classList.remove('visible');
+    }
+
+    // ffmpeg.wasm 0.12.x rejects with a plain string (not an Error), so
+    // err.message is undefined and the real reason gets lost.
+    function errText(err) {
+      if (err == null) return '알 수 없는 오류';
+      if (typeof err === 'string') return err.replace(/^Error:\s*/, '');
+      if (err.message) return err.message;
+      return String(err);
     }
 
     function formatFileSize(bytes) {
@@ -621,7 +630,7 @@
         const resultBlob = await compressVideo(selectedFile, updateProgress);
         showResult(selectedFile, resultBlob);
       } catch (err) {
-        showError('압축 중 오류가 발생했습니다: ' + err.message);
+        showError('압축 실패: ' + errText(err));
         compressBtn.disabled = false;
       }
     });
@@ -636,7 +645,7 @@
       .catch(err => {
         hideLoading();
         console.error('ffmpeg.wasm 로드 실패:', err);
-        showError('ffmpeg.wasm 로드 실패: ' + (err && err.message ? err.message : err));
+        showError('ffmpeg.wasm 로드 실패: ' + errText(err));
       });
   </script>
 </body>

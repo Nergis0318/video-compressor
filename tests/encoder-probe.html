@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>ffmpeg.wasm encoder probe</title>
+<script src="../vendor/ffmpeg/ffmpeg.js"></script>
+</head>
+<body>
+<pre id="out">running...</pre>
+<script>
+// Probe which encoders the loaded @ffmpeg/core actually provides.
+// The default core build does not necessarily include libaom-av1, so the
+// app's default codec choice must be verified against reality.
+const out = document.getElementById('out');
+const lines = [];
+function report(s) { lines.push(s); out.textContent = lines.join('\n'); }
+
+(async () => {
+  const ff = new FFmpegWASM.FFmpeg();
+  const logs = [];
+  ff.on('log', ({ message }) => logs.push(message));
+  await ff.load({
+    coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+    wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm'
+  });
+  report('core loaded');
+  try { await ff.exec(['-encoders']); } catch (e) { /* ffmpeg exits non-zero, logs still valid */ }
+
+  const encBlock = logs.join('\n');
+  const check = (name) => new RegExp('(^|\\s)' + name + '(\\s|$)', 'm').test(encBlock);
+  const wanted = {
+    'libx264 (H.264 / MP4)': check('libx264'),
+    'libvpx-vp9 (VP9 / WebM)': check('libvpx-vp9'),
+    'libaom-av1 (AV1 / WebM)': check('libaom-av1'),
+    'aac (audio)': check('\\baac\\b'),
+  };
+  report('--- encoder availability ---');
+  for (const [k, v] of Object.entries(wanted)) report((v ? 'YES ' : 'NO  ') + k);
+  window.__probe = wanted;
+
+  // Dump the raw Encoders block so the codec selector can be built from
+  // reality rather than from assumptions about what ships in the core.
+  const start = logs.findIndex(l => /Encoders:/.test(l));
+  const rawBlock = start >= 0 ? logs.slice(start, start + 60).join('\n') : '(no Encoders block)';
+  window.__encoders = rawBlock;
+  report('--- raw Encoders block ---');
+  report(rawBlock);
+  report('--- done ---');
+})().catch(e => { report('ERROR: ' + e); window.__probe = { error: String(e) }; });
+</script>
+</body>
+</html>
