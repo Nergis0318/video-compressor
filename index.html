@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>비디오 압축기 - 프라이버시 보호</title>
-  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/ffmpeg-util.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -309,8 +310,17 @@
     let ffmpegInstance = null;
 
     // === ffmpeg.wasm 로드 ===
-    async function loadFFmpeg() {
+    async function loadFFmpeg(retryCount = 0) {
       if (ffmpegInstance) return ffmpegInstance;
+
+      // FFmpegWASM 전역 변수 확인
+      if (typeof FFmpegWASM === 'undefined') {
+        if (retryCount < 10) {
+          await new Promise(r => setTimeout(r, 500));
+          return loadFFmpeg(retryCount + 1);
+        }
+        throw new Error('ffmpeg.wasm 스크립트가 로드되지 않았습니다. 네트워크 연결을 확인해 주세요.');
+      }
 
       const { FFmpeg } = FFmpegWASM;
       const ffmpeg = new FFmpeg();
@@ -320,8 +330,8 @@
       });
 
       await ffmpeg.load({
-        coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js',
-        wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.wasm'
+        coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js',
+        wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.wasm'
       });
 
       ffmpegInstance = ffmpeg;
