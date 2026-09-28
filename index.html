@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>비디오 압축기 - 프라이버시 보호</title>
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -65,6 +66,28 @@
     }
     .file-info-label { color: #64748b; }
     .file-info-value { font-weight: 600; color: #1a1a2e; }
+    .codec-selector { margin-top: 1.5rem; }
+    .codec-selector label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 0.5rem;
+    }
+    .codec-selector select {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 1rem;
+      background: white;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .codec-selector select:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
     .btn {
       display: inline-block;
       padding: 0.85rem 2rem;
@@ -140,47 +163,6 @@
       width: 100%;
       margin-top: 0.75rem;
     }
-    .codec-selector {
-      margin-top: 1.5rem;
-    }
-    .codec-selector label {
-      display: block;
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: #475569;
-      margin-bottom: 0.5rem;
-    }
-    .codec-selector select {
-      width: 100%;
-      padding: 0.75rem 1rem;
-      border: 1px solid #cbd5e1;
-      border-radius: 10px;
-      font-size: 1rem;
-      background: white;
-      cursor: pointer;
-      transition: border-color 0.2s;
-    }
-    .codec-selector select:focus {
-      outline: none;
-      border-color: #3b82f6;
-    }
-    .codec-hw-support {
-      margin-top: 0.5rem;
-      font-size: 0.85rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    .codec-hw-support.supported {
-      color: #10b981;
-    }
-    .codec-hw-support.unsupported {
-      color: #f59e0b;
-    }
-    .codec-hw-support.unknown {
-      color: #94a3b8;
-    }
     .error-message {
       display: none;
       background: #fef2f2;
@@ -192,29 +174,40 @@
       font-size: 0.9rem;
     }
     .error-message.visible { display: block; }
-    .browser-warning {
+    .loading-overlay {
       display: none;
-      background: #fffbeb;
-      border: 1px solid #fde68a;
-      border-radius: 10px;
-      padding: 1rem;
-      color: #d97706;
-      margin-bottom: 1rem;
-      font-size: 0.9rem;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255,255,255,0.9);
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
     }
-    .browser-warning.visible { display: block; }
+    .loading-overlay.visible { display: flex; }
+    .loading-spinner {
+      width: 50px; height: 50px;
+      border: 4px solid #e2e8f0;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 1rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { color: #475569; font-weight: 600; }
   </style>
 </head>
 <body>
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loadingText">ffmpeg.wasm 로드 중...</div>
+  </div>
+
   <div class="container">
     <header>
       <h1>비디오 압축기</h1>
       <div class="privacy-badge">서버 업로드 없음 · 브라우저에서만 처리</div>
     </header>
-
-    <div class="browser-warning" id="browserWarning">
-      현재 브라우저는 AV1 인코딩을 지원하지 않습니다. Chrome 94+ 또는 Edge 94+를 사용해 주세요.
-    </div>
 
     <div class="card">
       <div class="drop-zone" id="dropZone">
@@ -250,7 +243,6 @@
           <option value="vp9">VP9 (빠른 인코딩)</option>
           <option value="h264">H.264 (최고 호환성)</option>
         </select>
-        <div class="codec-hw-support" id="codecHwSupport"></div>
       </div>
 
       <button class="btn btn-primary" id="compressBtn" disabled>압축 시작</button>
@@ -290,7 +282,14 @@
     // === 상수 ===
     const TARGET_SIZE_MB = 49.9;
     const TARGET_SIZE_BITS = TARGET_SIZE_MB * 1024 * 1024 * 8;
-    const AUDIO_BITRATE = 128000; // 128 kbps
+    const AUDIO_BITRATE = 128000;
+
+    // === 코덱 설정 ===
+    const CODEC_PRESETS = {
+      av1: { codec: 'libaom-av1', ext: 'webm', mime: 'video/webm', extraArgs: ['-cpu-used', '4'] },
+      vp9: { codec: 'libvpx-vp9', ext: 'webm', mime: 'video/webm', extraArgs: ['-row-mt', '1'] },
+      h264: { codec: 'libx264', ext: 'mp4', mime: 'video/mp4', extraArgs: ['-preset', 'fast'] }
+    };
 
     // === DOM 요소 ===
     const dropZone = document.getElementById('dropZone');
@@ -303,77 +302,54 @@
     const progressText = document.getElementById('progressText');
     const progressTime = document.getElementById('progressTime');
     const resultSection = document.getElementById('resultSection');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    const loadingText = document.getElementById('loadingText');
 
     let selectedFile = null;
+    let ffmpegInstance = null;
 
-    // === 코덱 설정 ===
-    const CODEC_PRESETS = {
-      av1: { codec: 'av01.0.04M.08', ext: 'webm', mime: 'video/webm' },
-      vp9: { codec: 'vp09.00.10.08', ext: 'webm', mime: 'video/webm' },
-      h264: { codec: 'avc1.42001E', ext: 'mp4', mime: 'video/mp4' }
-    };
+    // === ffmpeg.wasm 로드 ===
+    async function loadFFmpeg() {
+      if (ffmpegInstance) return ffmpegInstance;
+
+      const { FFmpeg } = FFmpegWASM;
+      const ffmpeg = new FFmpeg();
+
+      ffmpeg.on('log', ({ message }) => {
+        console.log('[ffmpeg]', message);
+      });
+
+      await ffmpeg.load({
+        coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js',
+        wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.wasm'
+      });
+
+      ffmpegInstance = ffmpeg;
+      return ffmpeg;
+    }
+
+    function getFFmpeg() {
+      return ffmpegInstance;
+    }
 
     function getSelectedCodec() {
       const select = document.getElementById('codecSelect');
       return select ? select.value : 'av1';
     }
 
-    async function checkCodecSupport(codecKey) {
-      if (typeof VideoEncoder === 'undefined') return { supported: false, hw: false };
-      const preset = CODEC_PRESETS[codecKey];
-      try {
-        const result = await VideoEncoder.isConfigSupported({
-          codec: preset.codec,
-          width: 1920,
-          height: 1080,
-          bitrate: 1000000,
-          framerate: 30
-        });
-        return { supported: result.supported, hw: result.supported && !result.config?.hwAccelerated === false };
-      } catch {
-        return { supported: false, hw: false };
-      }
+    function getExtension(filename) {
+      const match = filename.match(/\.[^.]+$/);
+      return match ? match[0] : '.mp4';
     }
 
-    function updateHwIndicator(supported, hw) {
-      const el = document.getElementById('codecHwSupport');
-      if (!el) return;
-      el.classList.remove('supported', 'unsupported', 'unknown');
-      if (!supported) {
-        el.textContent = '이 브라우저에서는 지원되지 않습니다';
-        el.classList.add('unsupported');
-      } else if (hw) {
-        el.textContent = '하드웨어 인코딩 지원됨';
-        el.classList.add('supported');
-      } else {
-        el.textContent = '소프트웨어 인코딩만 지원됨';
-        el.classList.add('unknown');
-      }
+    // === 로딩 오버레이 ===
+    function showLoading(message) {
+      loadingText.textContent = message;
+      loadingOverlay.classList.add('visible');
     }
 
-    // === 브라우저 지원 확인 ===
-    async function checkBrowserSupport() {
-      if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') {
-        document.getElementById('browserWarning').classList.add('visible');
-        compressBtn.disabled = true;
-        return false;
-      }
-
-      // 선택된 코덱 지원 여부 확인
-      const selectedCodec = getSelectedCodec();
-      const { supported, hw } = await checkCodecSupport(selectedCodec);
-
-      updateHwIndicator(supported, hw);
-
-      if (!supported) {
-        document.getElementById('browserWarning').textContent =
-          '현재 브라우저는 선택한 코덱(' + selectedCodec.toUpperCase() + ')을 지원하지 않습니다. 다른 코덱을 선택해 주세요.';
-        document.getElementById('browserWarning').classList.add('visible');
-        compressBtn.disabled = true;
-        return false;
-      }
-
-      return true;
+    function hideLoading() {
+      loadingOverlay.classList.remove('visible');
     }
 
     // === 파일 선택 + 드래그앤드롭 ===
@@ -415,7 +391,6 @@
       fileInfo.classList.add('visible');
       compressBtn.disabled = true;
 
-      // 이미 타겟 크기 이하인 경우
       if (file.size <= TARGET_SIZE_MB * 1024 * 1024) {
         showError('이미 파일 크기가 49.9MB 이하입니다. 압축이 필요하지 않습니다.');
         compressBtn.textContent = '원본 다운로드';
@@ -427,7 +402,7 @@
       compressBtn.textContent = '압축 시작';
 
       try {
-        const meta = await analyzeVideo(file);
+        const meta = await probeVideo(file);
         document.getElementById('fileDuration').textContent = formatTime(meta.duration);
         document.getElementById('fileResolution').textContent = meta.width + ' × ' + meta.height;
         compressBtn.disabled = false;
@@ -472,36 +447,46 @@
       URL.revokeObjectURL(url);
     }
 
-    // === 비디오 분석 ===
-    async function analyzeVideo(file) {
-      const arrayBuffer = await file.arrayBuffer();
-      const blob = new Blob([arrayBuffer], { type: file.type });
-      const url = URL.createObjectURL(blob);
+    // === 비디오 분석 (ffmpeg probe) ===
+    async function probeVideo(file) {
+      const ffmpeg = getFFmpeg();
+      if (!ffmpeg) throw new Error('ffmpeg이 로드되지 않았습니다.');
 
-      return new Promise((resolve, reject) => {
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        video.muted = true;
-        video.playsInline = true;
+      const inputName = 'input' + getExtension(file.name);
+      const data = await file.arrayBuffer();
+      await ffmpeg.writeFile(inputName, new Uint8Array(data));
 
-        video.onloadedmetadata = () => {
-          const result = {
-            duration: video.duration,
-            width: video.videoWidth,
-            height: video.videoHeight,
-            frameRate: 30
-          };
-          URL.revokeObjectURL(url);
-          resolve(result);
-        };
+      let probeOutput = '';
+      const logHandler = ({ message }) => { probeOutput += message + '\n'; };
+      ffmpeg.on('log', logHandler);
 
-        video.onerror = () => {
-          URL.revokeObjectURL(url);
-          reject(new Error('비디오를 불러올 수 없습니다. 지원하지 않는 포맷일 수 있습니다.'));
-        };
+      try {
+        await ffmpeg.exec(['-i', inputName, '-f', 'null', '-']);
+      } catch (e) {
+        // ffmpeg probe는 실패해도 로그에서 메타데이터를 추출할 수 있음
+      }
 
-        video.src = url;
-      });
+      ffmpeg.off('log', logHandler);
+
+      const durationMatch = probeOutput.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+      const videoMatch = probeOutput.match(/Video: .*? (\d{3,5})x(\d{3,5}).*? (\d+(?:\.\d+)?) fps/);
+
+      await ffmpeg.deleteFile(inputName).catch(() => {});
+
+      if (!durationMatch || !videoMatch) {
+        throw new Error('비디오 메타데이터를 추출할 수 없습니다. 지원하지 않는 포맷일 수 있습니다.');
+      }
+
+      const hours = parseInt(durationMatch[1]);
+      const minutes = parseInt(durationMatch[2]);
+      const seconds = parseFloat(durationMatch[3]);
+      const duration = hours * 3600 + minutes * 60 + seconds;
+
+      const width = parseInt(videoMatch[1]);
+      const height = parseInt(videoMatch[2]);
+      const frameRate = parseFloat(videoMatch[3]) || 30;
+
+      return { duration, width, height, frameRate };
     }
 
     // === 비트레이트 계산 ===
@@ -516,122 +501,65 @@
     // === 진행률 업데이트 ===
     function updateProgress(percent, elapsedSeconds, totalFrames, processedFrames) {
       progressBar.style.width = percent + '%';
-      progressText.textContent = '인코딩 중... ' + percent.toFixed(1) + '% (' + processedFrames + '/' + totalFrames + ' 프레임)';
+      progressText.textContent = '인코딩 중... ' + percent.toFixed(1) + '%';
 
-      if (processedFrames > 0 && elapsedSeconds > 0) {
+      if (elapsedSeconds > 0 && processedFrames > 0) {
         const fps = processedFrames / elapsedSeconds;
         const remaining = Math.ceil((totalFrames - processedFrames) / fps);
         progressTime.textContent = '예상 남은 시간: ' + formatTime(remaining);
       }
     }
 
-    // === AV1 인코딩 ===
+    // === ffmpeg 인코딩 ===
     async function compressVideo(file, onProgress) {
-      const arrayBuffer = await file.arrayBuffer();
-      const meta = await analyzeVideo(file);
+      const ffmpeg = getFFmpeg();
+      if (!ffmpeg) throw new Error('ffmpeg이 로드되지 않았습니다.');
+
+      const meta = await probeVideo(file);
       const bitrate = calculateBitrate(meta.duration);
-
-      const blob = new Blob([arrayBuffer], { type: file.type });
-      const url = URL.createObjectURL(blob);
-      const video = document.createElement('video');
-      video.muted = true;
-      video.playsInline = true;
-      video.src = url;
-
-      await new Promise((resolve, reject) => {
-        video.onloadeddata = resolve;
-        video.onerror = () => reject(new Error('비디오 로딩 실패'));
-      });
-
-      const canvas = document.createElement('canvas');
-      canvas.width = meta.width;
-      canvas.height = meta.height;
-      const ctx = canvas.getContext('2d');
-
-      const fps = meta.frameRate || 30;
-      const totalFrames = Math.floor(meta.duration * fps);
-      const frameInterval = 1 / fps;
-
-      const encodedChunks = [];
-
-      const encoder = new VideoEncoder({
-        output: (chunk) => {
-          encodedChunks.push(chunk);
-        },
-        error: (e) => {
-          throw e;
-        }
-      });
-
       const codecKey = getSelectedCodec();
       const preset = CODEC_PRESETS[codecKey];
 
-      encoder.configure({
-        codec: preset.codec,
-        width: meta.width,
-        height: meta.height,
-        bitrate: bitrate,
-        framerate: fps,
-        latencyMode: 'quality'
+      const inputName = 'input' + getExtension(file.name);
+      const outputName = 'output.' + preset.ext;
+
+      const data = await file.arrayBuffer();
+      await ffmpeg.writeFile(inputName, new Uint8Array(data));
+
+      let startTime = performance.now();
+      let lastProgressTime = 0;
+
+      ffmpeg.on('progress', ({ progress, time }) => {
+        const now = performance.now();
+        if (now - lastProgressTime > 100) {
+          lastProgressTime = now;
+          const elapsed = (now - startTime) / 1000;
+          const pct = Math.min(100, progress * 100);
+          onProgress(pct, elapsed, 100, Math.floor(pct));
+        }
       });
 
-      let frameCount = 0;
-      const startTime = performance.now();
-      let nextKeyFrame = 0;
-      const keyFrameInterval = Math.floor(fps * 2);
+      const args = [
+        '-hwaccel', 'auto',
+        '-i', inputName,
+        '-c:v', preset.codec,
+        '-b:v', bitrate.toString(),
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        ...preset.extraArgs,
+        '-y',
+        outputName
+      ];
 
-      try {
-        // 비디오를 1배속 재생하면서 requestVideoFrameCallback으로 프레임 수신
-        video.play();
+      await ffmpeg.exec(args);
 
-        await new Promise((resolve, reject) => {
-          const processFrame = (now, metadata) => {
-            if (frameCount >= totalFrames || video.ended || video.paused) {
-              resolve();
-              return;
-            }
+      const outputData = await ffmpeg.readFile(outputName);
+      const blob = new Blob([outputData], { type: preset.mime });
 
-            try {
-              ctx.drawImage(video, 0, 0, meta.width, meta.height);
-              const frame = new VideoFrame(canvas, { timestamp: metadata.mediaTime * 1000000 });
+      await ffmpeg.deleteFile(inputName).catch(() => {});
+      await ffmpeg.deleteFile(outputName).catch(() => {});
 
-              const isKeyFrame = frameCount >= nextKeyFrame;
-              if (isKeyFrame) nextKeyFrame += keyFrameInterval;
-
-              encoder.encode(frame, { keyFrame: isKeyFrame });
-              frame.close();
-
-              frameCount++;
-              const elapsed = (performance.now() - startTime) / 1000;
-              const percent = (frameCount / totalFrames) * 100;
-              onProgress(percent, elapsed, totalFrames, frameCount);
-            } catch (err) {
-              reject(err);
-              return;
-            }
-
-            video.requestVideoFrameCallback(processFrame);
-          };
-
-          video.requestVideoFrameCallback(processFrame);
-
-          video.onerror = () => reject(new Error('비디오 재생 중 오류가 발생했습니다.'));
-          video.onended = () => resolve();
-        });
-      } catch (err) {
-        encoder.close();
-        URL.revokeObjectURL(url);
-        if (err.message && (err.message.includes('memory') || err.name === 'QuotaExceededError')) {
-          throw new Error('메모리가 부족하여 압축을 완료할 수 없습니다. 더 짧은 비디오로 시도해 주세요.');
-        }
-        throw err;
-      }
-
-      await encoder.flush();
-      encoder.close();
-      URL.revokeObjectURL(url);
-
-      return new Blob(encodedChunks, { type: 'video/webm' });
+      return blob;
     }
 
     // === 결과 표시 ===
@@ -685,14 +613,18 @@
       }
     });
 
-    // === 코덱 변경 시 지원 여부 재확인 ===
-    document.getElementById('codecSelect').addEventListener('change', () => {
-      document.getElementById('browserWarning').classList.remove('visible');
-      checkBrowserSupport();
-    });
-
-    // === 초기화 ===
-    checkBrowserSupport();
+    // === 초기화: ffmpeg.wasm 로드 ===
+    showLoading('ffmpeg.wasm 로드 중... (최초 1회, ~30MB)');
+    loadFFmpeg()
+      .then(() => {
+        hideLoading();
+        console.log('ffmpeg.wasm 로드 완료');
+      })
+      .catch(err => {
+        hideLoading();
+        console.error('ffmpeg.wasm 로드 실패:', err);
+        showError('ffmpeg.wasm을 불러오는 중 오류가 발생했습니다. 네트워크 연결을 확인하고 페이지를 새로고침해 주세요.');
+      });
   </script>
 </body>
 </html>
