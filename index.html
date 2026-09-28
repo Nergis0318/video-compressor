@@ -164,6 +164,23 @@
       outline: none;
       border-color: #3b82f6;
     }
+    .codec-hw-support {
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .codec-hw-support.supported {
+      color: #10b981;
+    }
+    .codec-hw-support.unsupported {
+      color: #f59e0b;
+    }
+    .codec-hw-support.unknown {
+      color: #94a3b8;
+    }
     .error-message {
       display: none;
       background: #fef2f2;
@@ -233,6 +250,7 @@
           <option value="vp9">VP9 (빠른 인코딩)</option>
           <option value="h264">H.264 (최고 호환성)</option>
         </select>
+        <div class="codec-hw-support" id="codecHwSupport"></div>
       </div>
 
       <button class="btn btn-primary" id="compressBtn" disabled>압축 시작</button>
@@ -300,16 +318,37 @@
       return select ? select.value : 'av1';
     }
 
-    function isCodecSupported(codecKey) {
-      if (typeof VideoEncoder === 'undefined') return false;
+    async function checkCodecSupport(codecKey) {
+      if (typeof VideoEncoder === 'undefined') return { supported: false, hw: false };
       const preset = CODEC_PRESETS[codecKey];
-      return VideoEncoder.isConfigSupported({
-        codec: preset.codec,
-        width: 1920,
-        height: 1080,
-        bitrate: 1000000,
-        framerate: 30
-      }).then(r => r.supported).catch(() => false);
+      try {
+        const result = await VideoEncoder.isConfigSupported({
+          codec: preset.codec,
+          width: 1920,
+          height: 1080,
+          bitrate: 1000000,
+          framerate: 30
+        });
+        return { supported: result.supported, hw: result.supported && !result.config?.hwAccelerated === false };
+      } catch {
+        return { supported: false, hw: false };
+      }
+    }
+
+    function updateHwIndicator(supported, hw) {
+      const el = document.getElementById('codecHwSupport');
+      if (!el) return;
+      el.classList.remove('supported', 'unsupported', 'unknown');
+      if (!supported) {
+        el.textContent = '이 브라우저에서는 지원되지 않습니다';
+        el.classList.add('unsupported');
+      } else if (hw) {
+        el.textContent = '하드웨어 인코딩 지원됨';
+        el.classList.add('supported');
+      } else {
+        el.textContent = '소프트웨어 인코딩만 지원됨';
+        el.classList.add('unknown');
+      }
     }
 
     // === 브라우저 지원 확인 ===
@@ -322,7 +361,9 @@
 
       // 선택된 코덱 지원 여부 확인
       const selectedCodec = getSelectedCodec();
-      const supported = await isCodecSupported(selectedCodec);
+      const { supported, hw } = await checkCodecSupport(selectedCodec);
+
+      updateHwIndicator(supported, hw);
 
       if (!supported) {
         document.getElementById('browserWarning').textContent =
