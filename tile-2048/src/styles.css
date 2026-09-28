@@ -1,0 +1,191 @@
+@font-face {
+  font-family: 'Inter';
+  src: url('../assets/fonts/Inter-Regular.ttf');
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #080b12;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  padding: 24px;
+  gap: 18px;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  background-color: #080b12;
+  color: #f8fafc;
+  font-family: 'Inter';
+}
+
+/* The root holds focus so keydown reaches its handler; it is not a control. */
+.screen:focus {
+  outline: none;
+}
+
+/* --- header ------------------------------------------------------------ */
+
+.topbar {
+  display: flex;
+  flex-direction: row;
+  width: 300px;
+  max-width: 88vw;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.eyebrow { color: #2dd4bf; font-size: 12px; }
+.title { color: #f8fafc; font-size: 34px; line-height: 1; }
+
+.scores { display: flex; flex-direction: row; gap: 10px; }
+
+.score-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 78px;
+  padding: 8px 12px;
+  gap: 2px;
+  border-radius: 12px;
+  background-color: #131a26;
+}
+
+.score-label { color: #64748b; font-size: 11px; }
+.score-value { color: #f8fafc; font-size: 24px; }
+
+/* --- board ------------------------------------------------------------- */
+
+.board-wrap {
+  position: relative;
+  width: 300px;
+  height: 300px;
+  max-width: 88vw;
+  max-height: 88vw;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  gap: 10px;
+  border-radius: 16px;
+  background-color: #131a26;
+  overflow: hidden;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  font-size: 30px;
+  color: #cbd5e1;
+  background-color: #1e293b;
+}
+
+.empty { background-color: #17202f; }
+
+.tile-2 { color: #cbd5e1; background-color: #1e293b; }
+.tile-4 { color: #e2e8f0; background-color: #26344a; }
+.tile-8 { color: #042f2e; background-color: #2dd4bf; }
+.tile-16 { color: #042f2e; background-color: #14b8a6; }
+.tile-32 { color: #1c1104; background-color: #f59e0b; }
+.tile-64 { color: #1c0b04; background-color: #f97316; }
+.tile-128 { color: #fff1f2; background-color: #ef4444; font-size: 26px; }
+.tile-256 { color: #fdf2f8; background-color: #ec4899; font-size: 26px; }
+.tile-512 { color: #faf5ff; background-color: #a855f7; font-size: 26px; }
+.tile-1024 { color: #eef2ff; background-color: #6366f1; font-size: 22px; }
+.tile-2048 { color: #042f2e; background-color: #22d3ee; font-size: 22px; }
+.tile-super { color: #1c1403; background-color: #facc15; font-size: 22px; }
+
+/* --- end-of-round overlay --------------------------------------------- */
+
+.overlay {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  background-color: rgba(8, 11, 18, 0.94);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.overlay.visible { display: flex; }
+
+.overlay-title { color: #f8fafc; font-size: 28px; }
+.overlay-text { color: #94a3b8; font-size: 16px; }
+.overlay-actions { display: flex; flex-direction: row; gap: 12px; }
+
+/* --- controls ---------------------------------------------------------- */
+
+.pad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.pad-row { display: flex; flex-direction: row; gap: 8px; }
+
+.pad-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 66px;
+  height: 48px;
+  border-radius: 12px;
+  border-width: 2px;
+  border-color: #334155;
+  background-color: #1e293b;
+  color: #e2e8f0;
+  font-size: 22px;
+}
+
+.hint {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+}
+
+.hint-text { color: #64748b; font-size: 13px; }
+
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border-width: 2px;
+  font-size: 16px;
+  font-family: 'Inter';
+}
+
+.primary { color: #042f2e; background-color: #2dd4bf; border-color: #5eead4; }
+.secondary { color: #f8fafc; background-color: #1e293b; border-color: #475569; }
+
+.hidden { display: none; }

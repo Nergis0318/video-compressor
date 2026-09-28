@@ -1,0 +1,40 @@
+{
+  "name": "gea-tile-2048",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "dev": "gea dev",
+    "build": "gea build --target web"
+  },
+  "dependencies": {
+    "@geajs/core": "1.4.2",
+    "@geastack/core": "^0.1.24",
+    "@geastack/cli": "^0.1.82"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "gea": {
+    "id": "tile-2048",
+    "name": "Tile 2048",
+    "description": "2048 sliding-tile game with component-local reactive state.",
+    "entry": "src/index.tsx",
+    "targets": {
+      "web": true,
+      "esp32": false,
+      "rp2350": false,
+      "geaos": false,
+      "macos": false,
+      "ios": false,
+      "android": false,
+      "windows": false
+    },
+    "ota": {
+      "ble": true
+    }
+  },
+  "license": "MIT"
+}

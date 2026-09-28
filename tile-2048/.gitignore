@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.gea/build/
+.env
+.gea/npm-install.log
