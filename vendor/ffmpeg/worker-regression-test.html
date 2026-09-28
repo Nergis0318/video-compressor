@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ffmpeg.wasm worker construction regression test</title>
+<script src="ffmpeg.js"></script>
+</head>
+<body>
+<pre id="out">running...</pre>
+<script>
+// Regression test for: SecurityError: Failed to construct 'Worker':
+// cross-origin script cannot be used for new Worker().
+// Pass = the vendored UMD wrapper can construct its same-origin worker chunk.
+const out = document.getElementById('out');
+const log = [];
+function report(pass, detail) {
+  const line = (pass ? 'PASS' : 'FAIL') + ' :: ' + detail;
+  log.push(line);
+  out.textContent = log.join('\n');
+}
+
+async function run() {
+  // 1) the library must be present (vendored, same-origin)
+  if (typeof FFmpegWASM === 'undefined') {
+    return report(false, 'FFmpegWASM global missing -> vendor/ffmpeg/ffmpeg.js did not load');
+  }
+  report(true, 'vendor/ffmpeg/ffmpeg.js loaded (FFmpegWASM present)');
+
+  // 2) the exact operation that threw SecurityError: the library builds its
+  //    worker from its own publicPath. Drive it through the real load() and
+  //    assert the failure mode is NOT a Worker construction failure.
+  const ff = new FFmpegWASM.FFmpeg();
+
+  let settled = false;
+  ff.on('log', () => {});
+
+  const err = await new Promise((resolve) => {
+    const timer = setTimeout(() => { if (!settled) { settled = true; resolve(null); } }, 4000);
+    // coreURL deliberately bogus: we only care whether worker construction
+    // happens (SecurityError) vs. reaches the core-import stage.
+    ff.load({ coreURL: 'about:blank#bogus', wasmURL: 'about:blank#bogus' })
+      .then(() => { if (!settled) { settled = true; clearTimeout(timer); resolve(null); } })
+      .catch((e) => { if (!settled) { settled = true; clearTimeout(timer); resolve(String(e && e.message ? e.message : e)); } });
+  });
+
+  if (err === null) {
+    report(true, 'no error surfaced within 4s (worker constructed, core stage did not throw SecurityError)');
+  } else if (/construct 'Worker'|SecurityError|cross-origin/i.test(err)) {
+    report(false, 'worker construction still blocked: ' + err);
+  } else {
+    // Reached the core-import stage => worker construction SUCCEEDED.
+    report(true, 'worker constructed OK; failure came later from core import: ' + err);
+  }
+
+  // 3) explicit direct construction, the precise regression assertion
+  try {
+    const w = new Worker('814.ffmpeg.js');
+    w.terminate();
+    report(true, "direct new Worker('814.ffmpeg.js') constructed with no SecurityError");
+  } catch (e) {
+    report(false, "direct new Worker('814.ffmpeg.js') threw: " + e);
+  }
+}
+
+run().catch(e => report(false, 'unexpected: ' + e));
+</script>
+</body>
+</html>
