@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>empty-output guard</title>
+<script src="../vendor/ffmpeg/ffmpeg.js"></script></head>
+<body>
+<pre id="out">running...</pre>
+<script>
+// Regression test for the "압축 완료! 0 B" bug: when ffmpeg produced no
+// output bytes, the app still reported success. Assert the guard trips.
+const out = document.getElementById('out');
+const lines = [];
+function report(pass, detail) { lines.push((pass ? 'PASS' : 'FAIL') + ' :: ' + detail); out.textContent = lines.join('\n'); }
+window.__done = false;
+
+// Mirrors the app's guard in compressVideo().
+function guard(outputData) {
+  if (!outputData || outputData.byteLength === 0) {
+    throw new Error('인코딩 결과가 비어 있습니다. 다른 코덱(H.264/VP9)을 선택해 보세요.');
+  }
+  return new Blob([outputData], { type: 'video/mp4' });
+}
+
+(async () => {
+  // 1. zero-length output must throw, not return an empty blob
+  try {
+    guard(new Uint8Array(0));
+    report(false, 'zero-length output did NOT throw -> app would show "0 B" success');
+  } catch (e) {
+    report(true, 'zero-length output throws: ' + e.message);
+  }
+
+  // 2. undefined/null must throw
+  for (const bad of [null, undefined]) {
+    try { guard(bad); report(false, String(bad) + ' did NOT throw'); }
+    catch (e) { report(true, String(bad) + ' throws: ' + e.message); }
+  }
+
+  // 3. a real non-empty output must still produce a correct-sized blob
+  const real = new Uint8Array(1024 * 1024);
+  const blob = guard(real);
+  report(blob.size === 1048576,
+    'non-empty output produces blob.size=' + blob.size + ' (expected 1048576)');
+
+  // 4. nonzero ffmpeg exit code must be surfaced as an error
+  function exitGuard(code) {
+    if (code !== 0) throw new Error('인코딩이 실패했습니다 (ffmpeg 종료 코드 ' + code + ').');
+    return 'ok';
+  }
+  try { exitGuard(1); report(false, 'exit code 1 did NOT throw'); }
+  catch (e) { report(true, 'nonzero exit code throws: ' + e.message); }
+  report(exitGuard(0) === 'ok', 'exit code 0 passes through');
+
+  window.__done = true;
+})();
+</script>
+</body>
+</html>

@@ -216,7 +216,7 @@
         <div class="drop-zone-text">비디오 파일을 드래그하거나 클릭하여 선택</div>
         <div class="drop-zone-hint">MP4, WebM, MOV 등 · 파일은 서버에 업로드되지 않습니다</div>
       </div>
-      <input type="file" id="fileInput" accept="video/*" style="display:none;">
+      <input type="file" id="fileInput" accept="video/*,.mkv,.ts,.m2ts,.mts,.avi,.wmv,.flv,.ogv,.3gp" style="display:none;">
 
       <div class="file-info" id="fileInfo">
         <div class="file-info-row">
@@ -393,8 +393,12 @@
     });
 
     async function handleFileSelect(file) {
-      if (!file.type.startsWith('video/')) {
-        showError('비디오 파일을 선택해 주세요.');
+      // 브라우저가 type을 모르는 확장자(.mkv, .ts, .m2ts 등)는 video/*가
+      // 아니므로 여기서 막으면 정상 파일을 거절한다. 확장자로만 걸러낸다.
+      const looksLikeVideo = file.type.startsWith('video/') ||
+        /\.(mp4|m4v|mov|webm|mkv|avi|wmv|flv|ogv|mpe?g|ts|m2ts|mts|3gp)$/i.test(file.name);
+      if (!looksLikeVideo) {
+        showError('비디오 파일을 선택해 주세요. (' + file.name + ')');
         return;
       }
       selectedFile = file;
@@ -405,13 +409,16 @@
       compressBtn.disabled = true;
 
       if (file.size <= TARGET_SIZE_MB * 1024 * 1024) {
-        showError('이미 파일 크기가 49.9MB 이하입니다. 압축이 필요하지 않습니다.');
+        // 이미 목표 이하면 압축하면 파일이 더 커질 뿐이다. 오류가 아니라 안내.
+        showError('이미 49.9MB 이하라 압축할 필요가 없습니다. 그대로 쓰시면 됩니다.');
         compressBtn.textContent = '원본 다운로드';
         compressBtn.disabled = false;
         compressBtn.onclick = () => downloadOriginal(file);
         return;
       }
 
+      // 이전 실행에서 남아 있던 onclick이 원본 다운로드로 남아있을 수 있다
+      compressBtn.onclick = null;
       compressBtn.textContent = '압축 시작';
 
       try {
@@ -490,13 +497,20 @@
 
       ffmpeg.off('log', logHandler);
 
-      const durationMatch = probeOutput.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
-      const videoMatch = probeOutput.match(/Video: .*? (\d{3,5})x(\d{3,5}).*? (\d+(?:\.\d+)?) fps/);
+      // ffprobe가 아니라 ffmpeg 로그를 파싱한다. Duration은 "N/A"일 수 있고
+      // 해상도에는 x1200 같은 4자리값, fps는 "tbr"/"30" 등 형태가 다양하다.
+      const durationMatch = probeOutput.match(/Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/);
+      const videoMatch = probeOutput.match(/Video:.*?(\d{2,5})x(\d{2,5})(?:[\s,].*?)?/);
 
       await ffmpeg.deleteFile(inputName).catch(() => {});
 
-      if (!durationMatch || !videoMatch) {
-        throw new Error('비디오 메타데이터를 추출할 수 없습니다. 지원하지 않는 포맷일 수 있습니다.');
+      if (!videoMatch) {
+        throw new Error('이 파일에서 비디오 트랙을 찾지 못했습니다. 영상 파일인지 확인해 주세요.');
+      }
+
+      // 길이를 모르면 비트레이트를 계산할 수 없다 (파일당 1회 목표 크기라서).
+      if (!durationMatch) {
+        throw new Error('비디오 길이를 확인할 수 없어 비트레이트를 계산할 수 없습니다.');
       }
 
       const hours = parseInt(durationMatch[1]);
@@ -506,7 +520,10 @@
 
       const width = parseInt(videoMatch[1]);
       const height = parseInt(videoMatch[2]);
-      const frameRate = parseFloat(videoMatch[3]) || 30;
+
+      // fps는 로그에 "30 fps" / "29.97 tbr" 등 여러 형태로 나온다.
+      const fpsMatch = probeOutput.match(/([\d.]+)\s*(?:fps|tbr)/);
+      const frameRate = fpsMatch ? parseFloat(fpsMatch[1]) : 30;
 
       return { duration, width, height, frameRate };
     }
@@ -573,9 +590,19 @@
         outputName
       ];
 
-      await ffmpeg.exec(args);
+      const exitCode = await ffmpeg.exec(args);
+      if (exitCode !== 0) {
+        throw new Error('인코딩이 실패했습니다 (ffmpeg 종료 코드 ' + exitCode + '). 원본 포맷을 지원하지 않거나 메모리가 부족할 수 있습니다.');
+      }
 
       const outputData = await ffmpeg.readFile(outputName);
+
+      // readFile은 0바이트가 아니라면 항상 비어 있지 않은 배열을 주지만,
+      // 0바이트면 "압축 완료 + 0 B"로 표시되어 성공처럼 보이므로 막아 둔다.
+      if (!outputData || outputData.byteLength === 0) {
+        throw new Error('인코딩 결과가 비어 있습니다. 다른 코덱(H.264/VP9)을 선택해 보세요.');
+      }
+
       const blob = new Blob([outputData], { type: preset.mime });
 
       await ffmpeg.deleteFile(inputName).catch(() => {});
