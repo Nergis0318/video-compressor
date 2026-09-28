@@ -140,6 +140,30 @@
       width: 100%;
       margin-top: 0.75rem;
     }
+    .codec-selector {
+      margin-top: 1.5rem;
+    }
+    .codec-selector label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 0.5rem;
+    }
+    .codec-selector select {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 1rem;
+      background: white;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .codec-selector select:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
     .error-message {
       display: none;
       background: #fef2f2;
@@ -202,6 +226,15 @@
         </div>
       </div>
 
+      <div class="codec-selector">
+        <label for="codecSelect">코덱 선택</label>
+        <select id="codecSelect">
+          <option value="av1" selected>AV1 (최고 압축률)</option>
+          <option value="vp9">VP9 (빠른 인코딩)</option>
+          <option value="h264">H.264 (최고 호환성)</option>
+        </select>
+      </div>
+
       <button class="btn btn-primary" id="compressBtn" disabled>압축 시작</button>
 
       <div class="error-message" id="errorMessage"></div>
@@ -255,29 +288,51 @@
 
     let selectedFile = null;
 
+    // === 코덱 설정 ===
+    const CODEC_PRESETS = {
+      av1: { codec: 'av01.0.04M.08', ext: 'webm', mime: 'video/webm' },
+      vp9: { codec: 'vp09.00.10.08', ext: 'webm', mime: 'video/webm' },
+      h264: { codec: 'avc1.42001E', ext: 'mp4', mime: 'video/mp4' }
+    };
+
+    function getSelectedCodec() {
+      const select = document.getElementById('codecSelect');
+      return select ? select.value : 'av1';
+    }
+
+    function isCodecSupported(codecKey) {
+      if (typeof VideoEncoder === 'undefined') return false;
+      const preset = CODEC_PRESETS[codecKey];
+      return VideoEncoder.isConfigSupported({
+        codec: preset.codec,
+        width: 1920,
+        height: 1080,
+        bitrate: 1000000,
+        framerate: 30
+      }).then(r => r.supported).catch(() => false);
+    }
+
     // === 브라우저 지원 확인 ===
-    function checkBrowserSupport() {
+    async function checkBrowserSupport() {
       if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') {
         document.getElementById('browserWarning').classList.add('visible');
         compressBtn.disabled = true;
         return false;
       }
 
-      const isChrome = /Chrome\/(\d+)/.test(navigator.userAgent);
-      const isEdge = /Edg\/(\d+)/.test(navigator.userAgent);
-      const chromeMatch = navigator.userAgent.match(/Chrome\/(\d+)/);
-      const edgeMatch = navigator.userAgent.match(/Edg\/(\d+)/);
-      const chromeVersion = chromeMatch ? parseInt(chromeMatch[1]) : 0;
-      const edgeVersion = edgeMatch ? parseInt(edgeMatch[1]) : 0;
-
-      const supported = (isChrome && chromeVersion >= 94) || (isEdge && edgeVersion >= 94);
+      // 선택된 코덱 지원 여부 확인
+      const selectedCodec = getSelectedCodec();
+      const supported = await isCodecSupported(selectedCodec);
 
       if (!supported) {
+        document.getElementById('browserWarning').textContent =
+          '현재 브라우저는 선택한 코덱(' + selectedCodec.toUpperCase() + ')을 지원하지 않습니다. 다른 코덱을 선택해 주세요.';
         document.getElementById('browserWarning').classList.add('visible');
         compressBtn.disabled = true;
+        return false;
       }
 
-      return supported;
+      return true;
     }
 
     // === 파일 선택 + 드래그앤드롭 ===
@@ -467,8 +522,11 @@
         }
       });
 
+      const codecKey = getSelectedCodec();
+      const preset = CODEC_PRESETS[codecKey];
+
       encoder.configure({
-        codec: 'av01.0.04M.08',
+        codec: preset.codec,
         width: meta.width,
         height: meta.height,
         bitrate: bitrate,
@@ -553,7 +611,8 @@
         const url = URL.createObjectURL(compressedBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = originalFile.name.replace(/\.[^.]+$/, '') + '_compressed.webm';
+        const ext = CODEC_PRESETS[getSelectedCodec()].ext;
+        a.download = originalFile.name.replace(/\.[^.]+$/, '') + '_compressed.' + ext;
         a.click();
         URL.revokeObjectURL(url);
       };
@@ -583,6 +642,12 @@
         showError('압축 중 오류가 발생했습니다: ' + err.message);
         compressBtn.disabled = false;
       }
+    });
+
+    // === 코덱 변경 시 지원 여부 재확인 ===
+    document.getElementById('codecSelect').addEventListener('change', () => {
+      document.getElementById('browserWarning').classList.remove('visible');
+      checkBrowserSupport();
     });
 
     // === 초기화 ===
